@@ -34,6 +34,32 @@ interface UserTransaction {
   isApproved: boolean;
 }
 
+interface PaymentRecord {
+  id: number;
+  userId: number;
+  transactionId: number;
+  paymentMethod: string;
+  paymentDate: string;
+  amount: number;
+  status: 'pending' | 'completed' | 'failed';
+  adminNotes?: string;
+  createdAt: string;
+}
+
+export interface ExtendedPaymentRecord extends PaymentRecord {
+  userName: string;
+  userCedula: string;
+  transactionReference: string;
+  transactionConcept: string;
+}
+
+interface ImportData {
+  users?: any[];
+  properties?: any[];
+  transactions?: any[];
+  payments?: any[];
+}
+
 class DatabaseService {
   private db: SQLite.SQLiteDatabase | null = null;
 
@@ -92,9 +118,26 @@ class DatabaseService {
       );
     `;
 
+    const createPaymentsTable = `
+      CREATE TABLE IF NOT EXISTS payment_records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        userId INTEGER NOT NULL,
+        transactionId INTEGER NOT NULL,
+        paymentMethod TEXT NOT NULL,
+        paymentDate TEXT NOT NULL,
+        amount REAL NOT NULL,
+        status TEXT DEFAULT 'pending',
+        adminNotes TEXT,
+        createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (userId) REFERENCES users (id),
+        FOREIGN KEY (transactionId) REFERENCES user_transactions (id)
+      );
+    `;
+
     await this.db.execAsync(createUsersTable);
     await this.db.execAsync(createPropertiesTable);
     await this.db.execAsync(createTransactionsTable);
+    await this.db.execAsync(createPaymentsTable);
   }
 
   private async seedInitialData(): Promise<void> {
@@ -258,6 +301,265 @@ class DatabaseService {
       return users;
     } catch (error) {
       console.error('Error getting all users:', error);
+      throw error;
+    }
+  }
+
+  async importDataFromJSON(jsonData: ImportData): Promise<{ success: boolean; message: string }> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      await this.db.execAsync('BEGIN TRANSACTION');
+
+      let importedCount = 0;
+
+      // Importar usuarios
+      if (jsonData.users && jsonData.users.length > 0) {
+        for (const user of jsonData.users) {
+          await this.importUser(user);
+          importedCount++;
+        }
+      }
+
+      // Importar propiedades
+      if (jsonData.properties && jsonData.properties.length > 0) {
+        for (const property of jsonData.properties) {
+          await this.importProperty(property);
+          importedCount++;
+        }
+      }
+
+      // Importar transacciones
+      if (jsonData.transactions && jsonData.transactions.length > 0) {
+        for (const transaction of jsonData.transactions) {
+          await this.importTransaction(transaction);
+          importedCount++;
+        }
+      }
+
+      // Importar pagos
+      if (jsonData.payments && jsonData.payments.length > 0) {
+        for (const payment of jsonData.payments) {
+          await this.importPayment(payment);
+          importedCount++;
+        }
+      }
+
+      await this.db.execAsync('COMMIT');
+      return { success: true, message: `${importedCount} registros importados exitosamente` };
+
+    } catch (error) {
+      await this.db.execAsync('ROLLBACK');
+      console.error('Error importing data:', error);
+      return { success: false, message: `Error al importar datos: ${error}` };
+    }
+  }
+
+  private async importUser(userData: any): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    const existingUser = await this.db.getFirstAsync(
+      'SELECT id FROM users WHERE cedula = ?',
+      [userData.cedula]
+    );
+
+    if (!existingUser) {
+      await this.db.runAsync(
+        `INSERT INTO users (cedula, password, name, fullName, email, phone, isActive) 
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          userData.cedula,
+          userData.password || '123456', // Password por defecto
+          userData.name,
+          userData.fullName,
+          userData.email || null,
+          userData.phone || null,
+          userData.isActive !== false ? 1 : 0
+        ]
+      );
+    }
+  }
+
+  private async importProperty(propertyData: any): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    // Buscar usuario por cédula
+    const user = await this.db.getFirstAsync(
+      'SELECT id FROM users WHERE cedula = ?',
+      [propertyData.userCedula]
+    ) as { id: number } | null;
+
+    if (user) {
+      await this.db.runAsync(
+        `INSERT INTO user_properties (userId, propertyNumber, propertyType, address, isActive) 
+         VALUES (?, ?, ?, ?, ?)`,
+        [
+          user.id,
+          propertyData.propertyNumber,
+          propertyData.propertyType,
+          propertyData.address,
+          propertyData.isActive !== false ? 1 : 0
+        ]
+      );
+    }
+  }
+
+  private async importTransaction(transactionData: any): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    // Buscar usuario por cédula
+    const user = await this.db.getFirstAsync(
+      'SELECT id FROM users WHERE cedula = ?',
+      [transactionData.userCedula]
+    ) as { id: number } | null;
+
+    if (user) {
+      await this.db.runAsync(
+        `INSERT INTO user_transactions (userId, referencia, estado, fecha, valor, concepto, isApproved) 
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          user.id,
+          transactionData.referencia,
+          transactionData.estado,
+          transactionData.fecha,
+          transactionData.valor,
+          transactionData.concepto,
+          transactionData.isApproved ? 1 : 0
+        ]
+      );
+    }
+  }
+
+  private async importPayment(paymentData: any): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    // Buscar usuario y transacción
+    const user = await this.db.getFirstAsync(
+      'SELECT id FROM users WHERE cedula = ?',
+      [paymentData.userCedula]
+    ) as { id: number } | null;
+
+    const transaction = await this.db.getFirstAsync(
+      'SELECT id FROM user_transactions WHERE referencia = ?',
+      [paymentData.transactionReference]
+    ) as { id: number } | null;
+
+    if (user && transaction) {
+      await this.db.runAsync(
+        `INSERT INTO payment_records (userId, transactionId, paymentMethod, paymentDate, amount, status, adminNotes) 
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          user.id,
+          transaction.id,
+          paymentData.paymentMethod,
+          paymentData.paymentDate,
+          parseFloat(paymentData.amount),
+          paymentData.status || 'pending',
+          paymentData.adminNotes || null
+        ]
+      );
+    }
+  }
+
+  async registerPayment(userId: number, transactionId: number, paymentData: {
+    paymentMethod: string;
+    amount: number;
+    adminNotes?: string;
+  }): Promise<{ success: boolean; paymentId?: number; message: string }> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const result = await this.db.runAsync(
+        `INSERT INTO payment_records (userId, transactionId, paymentMethod, paymentDate, amount, status, adminNotes) 
+         VALUES (?, ?, ?, ?, ?, 'completed', ?)`,
+        [
+          userId,
+          transactionId,
+          paymentData.paymentMethod,
+          new Date().toISOString(),
+          paymentData.amount,
+          paymentData.adminNotes || null
+        ]
+      );
+
+      // Actualizar estado de la transacción a aprobada
+      await this.db.runAsync(
+        'UPDATE user_transactions SET estado = ?, isApproved = 1 WHERE id = ?',
+        ['Aprobada', transactionId]
+      );
+
+      return {
+        success: true,
+        paymentId: result.lastInsertRowId,
+        message: 'Pago registrado exitosamente'
+      };
+
+    } catch (error) {
+      console.error('Error registering payment:', error);
+      return {
+        success: false,
+        message: `Error al registrar pago: ${error}`
+      };
+    }
+  }
+
+  async getAllPayments(): Promise<ExtendedPaymentRecord[]> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const payments = await this.db.getAllAsync(`
+        SELECT 
+          pr.*,
+          u.fullName as userName,
+          u.cedula as userCedula,
+          ut.referencia as transactionReference,
+          ut.concepto as transactionConcept
+        FROM payment_records pr
+        JOIN users u ON pr.userId = u.id
+        JOIN user_transactions ut ON pr.transactionId = ut.id
+        ORDER BY pr.paymentDate DESC
+      `) as any[];
+
+      return payments;
+    } catch (error) {
+      console.error('Error getting all payments:', error);
+      throw error;
+    }
+  }
+
+  async getPaymentsByDateRange(startDate: string, endDate: string): Promise<ExtendedPaymentRecord[]> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const payments = await this.db.getAllAsync(`
+        SELECT 
+          pr.*,
+          u.fullName as userName,
+          u.cedula as userCedula,
+          ut.referencia as transactionReference,
+          ut.concepto as transactionConcept
+        FROM payment_records pr
+        JOIN users u ON pr.userId = u.id
+        JOIN user_transactions ut ON pr.transactionId = ut.id
+        WHERE pr.paymentDate BETWEEN ? AND ?
+        ORDER BY pr.paymentDate DESC
+      `, [startDate, endDate]) as any[];
+
+      return payments;
+    } catch (error) {
+      console.error('Error getting payments by date range:', error);
+      throw error;
+    }
+  }
+
+  async exportPaymentsToJSON(): Promise<string> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const payments = await this.getAllPayments();
+      return JSON.stringify(payments, null, 2);
+    } catch (error) {
+      console.error('Error exporting payments:', error);
       throw error;
     }
   }
