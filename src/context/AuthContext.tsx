@@ -1,7 +1,7 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { User, LoginCredentials } from '../types';
-import { ErrorHandler, AppErrors } from '../utils/errorHandler';
+import React, { createContext, ReactNode, useContext, useEffect, useState } from 'react';
+import { LoginCredentials, User } from '../types';
+import { AppErrors, ErrorHandler } from '../utils/errorHandler';
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -50,7 +50,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setIsLoading(true);
       
       // Simulación de autenticación
-      // En una app real, aquí harías la llamada al API
       await new Promise(resolve => setTimeout(resolve, 1000));
       
       // Simulamos credenciales válidas

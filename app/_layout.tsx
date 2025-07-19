@@ -5,7 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { AuthProvider } from '@/context/AuthContext';
+import { AuthProvider } from '@/src/context/AuthContext';
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
@@ -14,7 +14,6 @@ export default function RootLayout() {
   });
 
   if (!loaded) {
-    // Async font loading only occurs in development.
     return null;
   }
 
@@ -23,7 +22,11 @@ export default function RootLayout() {
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <Stack>
           <Stack.Screen name="login" options={{ headerShown: false }} />
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="home" options={{ headerShown: false }} />
+          <Stack.Screen name="consultar-predial" options={{ headerShown: false, title: 'Consultar Impuestos' }} />
+          <Stack.Screen name="realizar-pagos" options={{ headerShown: false, title: 'Realizar Pagos' }} />
+          <Stack.Screen name="historial-transacciones" options={{ headerShown: false, title: 'Historial de Pagos' }} />
+          <Stack.Screen name="mi-perfil" options={{ headerShown: false, title: 'Mi Perfil' }} />
           <Stack.Screen name="+not-found" />
         </Stack>
         <StatusBar style="auto" />
