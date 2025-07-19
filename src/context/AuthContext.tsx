@@ -1,134 +1,145 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { createContext, ReactNode, useContext, useEffect, useState } from 'react';
-import { LoginCredentials, User } from '../types';
-import { AppErrors, ErrorHandler } from '../utils/errorHandler';
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { databaseService } from '../services/database';
+import { User } from '../types';
+import { ErrorHandler } from '../utils/errorHandler';
 
 interface AuthContextType {
-  isAuthenticated: boolean;
-  isLoading: boolean;
   user: User | null;
-  login: (credentials: LoginCredentials) => Promise<boolean>;
+  userId: number | null;
+  login: (cedula: string, password: string) => Promise<boolean>;
   logout: () => Promise<void>;
-  finishLoading: () => void;
+  isLoading: boolean;
+  getUserProperties: () => Promise<any[]>;
+  getUserTransactions: () => Promise<any[]>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const STORAGE_KEYS = {
-  USER: '@hacienda_user',
-  TOKEN: '@hacienda_token',
-  REMEMBER_DATA: '@hacienda_remember',
-};
-
-export function AuthProvider({ children }: { children: ReactNode }) {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
+  const [userId, setUserId] = useState<number | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    checkAuthState();
+    initializeAuth();
   }, []);
 
-  const checkAuthState = async () => {
+  const initializeAuth = async () => {
     try {
-      const savedUser = await AsyncStorage.getItem(STORAGE_KEYS.USER);
-      const savedToken = await AsyncStorage.getItem(STORAGE_KEYS.TOKEN);
-      
-      if (savedUser && savedToken) {
-        setUser(JSON.parse(savedUser));
-        setIsAuthenticated(true);
-      }
+      await databaseService.initializeDatabase();
+      await checkAuthState();
     } catch (error) {
-      ErrorHandler.logError(error as Error, 'AuthContext.checkAuthState');
+      console.error('Error initializing auth:', error);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const login = async (credentials: LoginCredentials): Promise<boolean> => {
+  const checkAuthState = async () => {
     try {
-      setIsLoading(true);
+      const userData = await AsyncStorage.getItem('user');
+      const userIdData = await AsyncStorage.getItem('userId');
       
-      // Simulación de autenticación
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Simulamos credenciales válidas
-      if (credentials.usuario === '32165498' && credentials.contraseña === '123456') {
-        const userData: User = {
-          name: 'Luis Fernando',
-          fullName: 'Luis Fernando Delgado Arboleda',
-          cedula: credentials.usuario,
-          email: 'luis.delgado@hacienda.gov.co',
-        };
-
-        setUser(userData);
-        setIsAuthenticated(true);
-
-        // Guardar datos si el usuario lo solicita
-        if (credentials.recordarDatos) {
-          await AsyncStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(userData));
-          await AsyncStorage.setItem(STORAGE_KEYS.TOKEN, 'mock_token_123');
-          await AsyncStorage.setItem(STORAGE_KEYS.REMEMBER_DATA, 'true');
+      if (userData && userIdData) {
+        const parsedUser = JSON.parse(userData);
+        const parsedUserId = parseInt(userIdData);
+        
+        // Verificar que el usuario sigue activo en la base de datos
+        const dbUser = await databaseService.getUserByCedula(parsedUser.cedula);
+        if (dbUser) {
+          setUser(parsedUser);
+          setUserId(parsedUserId);
+        } else {
+          // Usuario no existe o no está activo, limpiar datos
+          await AsyncStorage.multiRemove(['user', 'userId', 'token', 'remember_data']);
         }
+      }
+    } catch (error) {
+      console.error('Error checking auth state:', error);
+    }
+  };
 
+  const login = async (cedula: string, password: string): Promise<boolean> => {
+    try {
+      const dbUser = await databaseService.authenticateUser(cedula, password);
+      
+      if (dbUser) {
+        const appUser = databaseService.convertToAppUser(dbUser);
+        setUser(appUser);
+        setUserId(dbUser.id);
+        
+        // Guardar en AsyncStorage
+        await AsyncStorage.setItem('user', JSON.stringify(appUser));
+        await AsyncStorage.setItem('userId', dbUser.id.toString());
+        await AsyncStorage.setItem('token', 'dummy-token');
+        
+        ErrorHandler.showSuccess(`¡Bienvenido ${appUser.fullName}!`);
         return true;
       } else {
-        ErrorHandler.showError(AppErrors.INVALID_CREDENTIALS);
+        ErrorHandler.showError('Credenciales inválidas');
         return false;
       }
     } catch (error) {
-      ErrorHandler.logError(error as Error, 'AuthContext.login');
-      ErrorHandler.showError(AppErrors.NETWORK_ERROR);
+      console.error('Login error:', error);
+      ErrorHandler.showError('Error al iniciar sesión');
       return false;
-    } finally {
-      setIsLoading(false);
     }
   };
 
   const logout = async (): Promise<void> => {
     try {
-      setIsLoading(true);
-      
-      // Limpiar datos guardados
-      await AsyncStorage.multiRemove([
-        STORAGE_KEYS.USER,
-        STORAGE_KEYS.TOKEN,
-        STORAGE_KEYS.REMEMBER_DATA,
-      ]);
-
       setUser(null);
-      setIsAuthenticated(false);
+      setUserId(null);
+      await AsyncStorage.multiRemove(['user', 'userId', 'token', 'remember_data']);
     } catch (error) {
-      ErrorHandler.logError(error as Error, 'AuthContext.logout');
-    } finally {
-      setIsLoading(false);
+      console.error('Logout error:', error);
     }
   };
 
-  const finishLoading = () => {
-    setIsLoading(false);
+  const getUserProperties = async (): Promise<any[]> => {
+    if (!userId) return [];
+    
+    try {
+      return await databaseService.getUserProperties(userId);
+    } catch (error) {
+      console.error('Error getting user properties:', error);
+      return [];
+    }
+  };
+
+  const getUserTransactions = async (): Promise<any[]> => {
+    if (!userId) return [];
+    
+    try {
+      return await databaseService.getUserTransactions(userId);
+    } catch (error) {
+      console.error('Error getting user transactions:', error);
+      return [];
+    }
+  };
+
+  const value: AuthContextType = {
+    user,
+    userId,
+    login,
+    logout,
+    isLoading,
+    getUserProperties,
+    getUserTransactions,
   };
 
   return (
-    <AuthContext.Provider 
-      value={{ 
-        isAuthenticated, 
-        isLoading, 
-        user, 
-        login, 
-        logout, 
-        finishLoading 
-      }}
-    >
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );
-}
+};
 
-export function useAuth() {
+export const useAuth = () => {
   const context = useContext(AuthContext);
   if (context === undefined) {
     throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
-}
+};

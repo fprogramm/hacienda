@@ -1,9 +1,34 @@
+import { useAuth } from '@/src/context/AuthContext';
 import { MaterialIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 export default function MiPerfilScreen() {
+  const { user } = useAuth();
+
+  // Si no hay usuario logueado, mostrar mensaje
+  if (!user) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity 
+            style={styles.backButton} 
+            onPress={() => router.push('/home')}
+          >
+            <MaterialIcons name="home" size={24} color="white" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Mi Perfil</Text>
+          <View style={styles.spacer} />
+        </View>
+        
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>No hay usuario logueado</Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       {/* Header */}
@@ -26,22 +51,24 @@ export default function MiPerfilScreen() {
         
         <View style={styles.infoCard}>
           <Text style={styles.label}>Nombre Completo</Text>
-          <Text style={styles.value}>Luis Fernando Delgado Arboleda</Text>
+          <Text style={styles.value}>{user.fullName}</Text>
         </View>
         
         <View style={styles.infoCard}>
           <Text style={styles.label}>Cédula</Text>
-          <Text style={styles.value}>32.165.498</Text>
+          <Text style={styles.value}>{user.cedula}</Text>
         </View>
         
-        <View style={styles.infoCard}>
-          <Text style={styles.label}>Email</Text>
-          <Text style={styles.value}>luis.delgado@email.com</Text>
-        </View>
+        {user.email && (
+          <View style={styles.infoCard}>
+            <Text style={styles.label}>Email</Text>
+            <Text style={styles.value}>{user.email}</Text>
+          </View>
+        )}
         
         <View style={styles.infoCard}>
-          <Text style={styles.label}>Teléfono</Text>
-          <Text style={styles.value}>+57 300 123 4567</Text>
+          <Text style={styles.label}>Nombre de Usuario</Text>
+          <Text style={styles.value}>{user.name}</Text>
         </View>
 
         {/* Bottom Space */}
@@ -118,5 +145,16 @@ const styles = StyleSheet.create({
   },
   bottomSpace: {
     height: 20,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorText: {
+    fontSize: 18,
+    color: '#666',
+    textAlign: 'center',
   },
 });

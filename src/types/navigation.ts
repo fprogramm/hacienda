@@ -62,4 +62,5 @@ export type MaterialIconName =
   | 'exit-to-app'
   | 'keyboard-arrow-up'
   | 'keyboard-arrow-down'
-  | 'file-download';
+  | 'file-download'
+  | 'refresh';

@@ -14,7 +14,7 @@ import {
 import { Header } from '@/src/components/index';
 import { useAuth } from '@/src/context/index';
 import { FormErrors, LoginCredentials } from '@/src/types/index';
-import { ErrorHandler, validateLoginForm } from '@/src/utils/index';
+import { ErrorHandler } from '@/src/utils/index';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -35,22 +35,22 @@ export default function LoginScreen() {
   };
 
   const handleLogin = async () => {
-    try {
-      setIsLoading(true);
-      
-      const validationErrors = validateLoginForm(credentials);
-      if (Object.keys(validationErrors).length > 0) {
-        setErrors(validationErrors);
-        return;
-      }
+    if (!credentials.usuario.trim() || !credentials.contraseña.trim()) {
+      ErrorHandler.showError('Por favor complete todos los campos');
+      return;
+    }
 
-      const success = await login(credentials);
+    setIsLoading(true);
+    
+    try {
+      const success = await login(credentials.usuario, credentials.contraseña);
+      
       if (success) {
-        ErrorHandler.showSuccess('¡Bienvenido a Hacienda Liborina!');
         router.replace('/home');
       }
     } catch (error) {
-      ErrorHandler.logError(error as Error, 'LoginScreen.handleLogin');
+      console.error('Login error:', error);
+      ErrorHandler.showError('Error al iniciar sesión');
     } finally {
       setIsLoading(false);
     }

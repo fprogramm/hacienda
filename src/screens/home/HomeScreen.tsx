@@ -1,14 +1,17 @@
 import React from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import { Header, MenuCard } from '@/src/components/index';
-import { createMenuItems } from '@/src/constants/index';
+import Header from '@/src/components/common/Header';
+import MenuCard from '@/src/components/common/MenuCard';
+import { createMenuItems } from '@/src/constants/menuItems';
+import { useAuth } from '@/src/context/AuthContext';
 
 interface HomeScreenProps {
   navigation?: any;
 }
 
 export default function HomeScreen({ navigation }: HomeScreenProps) {
+  const { user } = useAuth();
   const menuItems = createMenuItems(navigation);
 
   return (
@@ -19,7 +22,9 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
         {/* Welcome Section */}
         <View style={styles.welcomeSection}>
           <Text style={styles.welcomeText}>Bienvenido</Text>
-          <Text style={styles.nameText}>Luis Fernando Delgado Arboleda</Text>
+          <Text style={styles.nameText}>
+            {user?.fullName || 'Usuario'}
+          </Text>
         </View>
 
         {/* Menu Items */}
