@@ -42,4 +42,14 @@ export const createMenuItems = (navigation?: any): MenuItem[] => [
       router.push('/mi-perfil');
     },
   },
+  {
+    id: '5',
+    title: 'Configuración API',
+    subtitle: 'Conectar con servidor REST y sincronizar datos',
+    icon: 'cloud-sync',
+    color: '#607D8B',
+    onPress: () => {
+      router.push('/api-config' as any);
+    },
+  },
 ];

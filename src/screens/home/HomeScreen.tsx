@@ -1,6 +1,7 @@
 import React from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
+import { ConnectionStatus } from '@/src/components/common/ConnectionStatus';
 import Header from '@/src/components/common/Header';
 import MenuCard from '@/src/components/common/MenuCard';
 import { createMenuItems } from '@/src/constants/menuItems';
@@ -17,6 +18,9 @@ export default function HomeScreen({ navigation }: HomeScreenProps) {
   return (
     <View style={styles.container}>
       <Header />
+      
+      {/* Connection Status */}
+      <ConnectionStatus />
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {/* Welcome Section */}

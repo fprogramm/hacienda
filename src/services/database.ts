@@ -564,6 +564,155 @@ class DatabaseService {
     }
   }
 
+  // Métodos para importación CSV
+  async importUsers(userData: any[]): Promise<{ success: boolean; message: string; imported: number }> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    let imported = 0;
+    let errors = 0;
+
+    try {
+      for (const user of userData) {
+        try {
+          // Validar datos requeridos
+          if (!user.cedula || !user.name || !user.fullName) {
+            errors++;
+            continue;
+          }
+
+          await this.db.runAsync(
+            `INSERT OR IGNORE INTO users (cedula, password, name, fullName, email, phone, isActive) 
+             VALUES (?, ?, ?, ?, ?, ?, 1)`,
+            [
+              user.cedula,
+              user.password || '123456', // Password por defecto
+              user.name,
+              user.fullName,
+              user.email || null,
+              user.phone || null
+            ]
+          );
+          imported++;
+        } catch (error) {
+          console.error('Error importing user:', error);
+          errors++;
+        }
+      }
+
+      return {
+        success: true,
+        message: `Importados: ${imported} usuarios. Errores: ${errors}`,
+        imported
+      };
+
+    } catch (error) {
+      console.error('Error in bulk user import:', error);
+      return {
+        success: false,
+        message: `Error al importar usuarios: ${error}`,
+        imported
+      };
+    }
+  }
+
+  async importTransactions(transactionData: any[]): Promise<{ success: boolean; message: string; imported: number }> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    let imported = 0;
+    let errors = 0;
+
+    try {
+      for (const transaction of transactionData) {
+        try {
+          // Validar datos requeridos
+          if (!transaction.userId || !transaction.referencia || !transaction.valor) {
+            errors++;
+            continue;
+          }
+
+          await this.db.runAsync(
+            `INSERT OR IGNORE INTO user_transactions (userId, referencia, estado, fecha, valor, concepto, isApproved) 
+             VALUES (?, ?, ?, ?, ?, ?, 0)`,
+            [
+              transaction.userId,
+              transaction.referencia,
+              transaction.estado || 'Pendiente',
+              transaction.fecha || new Date().toISOString().split('T')[0],
+              transaction.valor,
+              transaction.concepto || 'Transacción importada',
+            ]
+          );
+          imported++;
+        } catch (error) {
+          console.error('Error importing transaction:', error);
+          errors++;
+        }
+      }
+
+      return {
+        success: true,
+        message: `Importadas: ${imported} transacciones. Errores: ${errors}`,
+        imported
+      };
+
+    } catch (error) {
+      console.error('Error in bulk transaction import:', error);
+      return {
+        success: false,
+        message: `Error al importar transacciones: ${error}`,
+        imported
+      };
+    }
+  }
+
+  async importProperties(propertyData: any[]): Promise<{ success: boolean; message: string; imported: number }> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    let imported = 0;
+    let errors = 0;
+
+    try {
+      for (const property of propertyData) {
+        try {
+          // Validar datos requeridos
+          if (!property.userId || !property.propertyNumber || !property.address) {
+            errors++;
+            continue;
+          }
+
+          await this.db.runAsync(
+            `INSERT OR IGNORE INTO user_properties (userId, propertyNumber, propertyType, address, isActive) 
+             VALUES (?, ?, ?, ?, 1)`,
+            [
+              property.userId,
+              property.propertyNumber,
+              property.propertyType || 'Residencial',
+              property.address
+            ]
+          );
+          imported++;
+        } catch (error) {
+          console.error('Error importing property:', error);
+          errors++;
+        }
+      }
+
+      return {
+        success: true,
+        message: `Importadas: ${imported} propiedades. Errores: ${errors}`,
+        imported
+      };
+
+    } catch (error) {
+      console.error('Error in bulk property import:', error);
+      return {
+        success: false,
+        message: `Error al importar propiedades: ${error}`,
+        imported
+      };
+    }
+  }
+
   // Convertir DatabaseUser a User (tipo de la app)
   convertToAppUser(dbUser: DatabaseUser): User {
     return {

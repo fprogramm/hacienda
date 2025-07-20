@@ -1,12 +1,13 @@
 import { useAuth } from '@/src/context/AuthContext';
-import { CSVImportService } from '@/src/services/csvImportService';
 import { databaseService, ExtendedPaymentRecord } from '@/src/services/database';
 import { MaterialIcons } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
 import { router } from 'expo-router';
 import * as Sharing from 'expo-sharing';
+import Papa from 'papaparse';
 import React, { useEffect, useState } from 'react';
-import { Alert, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, RefreshControl, ScrollView, Text, TouchableOpacity, View, StyleSheet } from 'react-native';
 
 interface User {
   id: number;
@@ -75,15 +76,68 @@ export default function AdminUsersScreen() {
   const handleImportCSV = async () => {
     try {
       setIsLoading(true);
-      const result = await CSVImportService.importFromCSV();
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['text/csv', 'application/csv', 'text/comma-separated-values'],
+        copyToCacheDirectory: true
+      });
       
-      if (result.success) {
-        Alert.alert('Importación Exitosa', result.message);
-        await loadData(); // Recargar datos
+      if (!result.canceled && result.uri) {
+        const fileUri = result.uri;
+        const fileContent = await FileSystem.readAsStringAsync(fileUri, { encoding: 'utf8' });
+        
+        Papa.parse(fileContent, {
+          header: true,
+          skipEmptyLines: true,
+          complete: async (results) => {
+            try {
+              const data = results.data as any[];
+              
+              if (data.length === 0) {
+                Alert.alert('Error', 'El archivo CSV está vacío');
+                return;
+              }
+
+              // Detectar tipo de datos basado en las columnas
+              const columns = Object.keys(data[0]);
+              let importResult;
+
+              if (columns.includes('cedula') && columns.includes('fullName')) {
+                // Importar usuarios
+                importResult = await databaseService.importUsers(data);
+              } else if (columns.includes('userId') && columns.includes('referencia')) {
+                // Importar transacciones
+                importResult = await databaseService.importTransactions(data);
+              } else if (columns.includes('userId') && columns.includes('propertyNumber')) {
+                // Importar propiedades
+                importResult = await databaseService.importProperties(data);
+              } else {
+                Alert.alert('Error', 'Formato de CSV no reconocido. Verifica que uses la plantilla correcta.');
+                return;
+              }
+
+              if (importResult.success) {
+                Alert.alert('Importación Exitosa', importResult.message);
+                await loadData(); // Recargar datos
+              } else {
+                Alert.alert('Error en Importación', importResult.message);
+              }
+
+            } catch (error) {
+              console.error('Error processing CSV data:', error);
+              Alert.alert('Error', 'Error al procesar los datos del CSV');
+            }
+          },
+          error: (error) => {
+            console.error('Error parsing CSV:', error);
+            Alert.alert('Error en Importación', 'No se pudo leer el archivo CSV');
+          },
+        });
       } else {
-        Alert.alert('Error en Importación', result.message);
+        // Usuario canceló la selección
+        console.log('File selection cancelled');
       }
     } catch (error) {
+      console.error('Error in CSV import:', error);
       Alert.alert('Error', 'No se pudo importar el archivo');
     } finally {
       setIsLoading(false);
@@ -128,7 +182,7 @@ export default function AdminUsersScreen() {
 
   const downloadTemplate = async (type: 'users' | 'properties' | 'transactions' | 'payments') => {
     try {
-      const template = CSVImportService.generateCSVTemplate(type);
+      const template = generateCSVTemplate(type);
       const fileName = `plantilla_${type}.csv`;
       const fileUri = `${FileSystem.documentDirectory}${fileName}`;
       
@@ -145,6 +199,35 @@ export default function AdminUsersScreen() {
     } catch (error) {
       Alert.alert('Error', 'No se pudo descargar la plantilla');
     }
+  };
+
+  const generateCSVTemplate = (type: 'users' | 'properties' | 'transactions' | 'payments') => {
+    let template = '';
+    switch (type) {
+      case 'users':
+        template = 'cedula,name,fullName,email,phone,password\n';
+        template += '12345678,Juan,Juan Pérez García,juan@email.com,3001234567,123456\n';
+        template += '87654321,María,María González López,maria@email.com,3007654321,123456\n';
+        break;
+      case 'properties':
+        template = 'userId,propertyNumber,propertyType,address\n';
+        template += '1,001,Residencial,Calle 123 #45-67\n';
+        template += '1,002,Comercial,Carrera 89 #12-34\n';
+        break;
+      case 'transactions':
+        template = 'userId,referencia,estado,fecha,valor,concepto\n';
+        template += '1,REF001,Pendiente,2024-01-15,COP $150000,Administración Enero\n';
+        template += '1,REF002,Pendiente,2024-02-15,COP $150000,Administración Febrero\n';
+        break;
+      case 'payments':
+        template = 'userId,transactionId,paymentMethod,amount,adminNotes\n';
+        template += '1,1,Transferencia Bancaria,150000,Pago completo\n';
+        template += '1,2,Efectivo,150000,Pago en efectivo\n';
+        break;
+      default:
+        throw new Error(`Tipo de plantilla no soportado: ${type}`);
+    }
+    return template;
   };
 
   const renderTabButton = (tab: 'users' | 'payments' | 'import', title: string, icon: string) => (
@@ -323,7 +406,7 @@ export default function AdminUsersScreen() {
           2. Completa la plantilla con tus datos
         </Text>
         <Text style={styles.instructionText}>
-          3. Guarda el archivo y selecciónalo usando "Seleccionar Archivo"
+          3. Guarda el archivo y selecciónalo usando &quot;Seleccionar Archivo&quot;
         </Text>
         <Text style={styles.instructionText}>
           4. El sistema detectará automáticamente el tipo de datos
@@ -377,47 +460,40 @@ export default function AdminUsersScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f9fafb',
+    backgroundColor: '#F9FAFB',
   },
   header: {
-    backgroundColor: '#006c00',
-    paddingTop: 50,
-    paddingBottom: 16,
-    paddingHorizontal: 16,
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: '#059669',
   },
   backButton: {
     padding: 8,
+    borderRadius: 8,
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: 'white',
   },
   refreshButton: {
     padding: 8,
-  },
-  headerTitle: {
-    color: 'white',
-    fontSize: 18,
-    fontWeight: 'bold',
-    flex: 1,
-    textAlign: 'center',
-  },
-  content: {
-    flex: 1,
-    padding: 16,
+    borderRadius: 8,
   },
   tabsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    paddingVertical: 16,
+    alignItems: 'center',
+    padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#ddd',
+    borderBottomColor: '#E5E5E5',
   },
   tabButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
+    padding: 16,
     borderRadius: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
+    backgroundColor: '#F9FAFB',
   },
   activeTab: {
     backgroundColor: '#059669',
@@ -425,28 +501,35 @@ const styles = StyleSheet.create({
   tabText: {
     fontSize: 16,
     color: '#6B7280',
-    marginLeft: 8,
   },
   activeTabText: {
     color: 'white',
   },
+  content: {
+    flex: 1,
+    padding: 16,
+  },
   tabContent: {
-    paddingVertical: 16,
+    padding: 16,
   },
   statsContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginBottom: 16,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
   },
   statCard: {
-    backgroundColor: 'white',
     padding: 16,
-    borderRadius: 12,
+    borderRadius: 8,
+    backgroundColor: '#F9FAFB',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   statNumber: {
     fontSize: 24,
@@ -454,25 +537,27 @@ const styles = StyleSheet.create({
     color: '#333',
   },
   statLabel: {
-    fontSize: 14,
-    color: '#666',
+    fontSize: 16,
+    color: '#6B7280',
   },
   userCard: {
-    backgroundColor: 'white',
     padding: 16,
-    borderRadius: 12,
+    borderRadius: 8,
+    backgroundColor: '#F9FAFB',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
     marginBottom: 16,
   },
   userHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 12,
+    alignItems: 'center',
   },
   userName: {
     fontSize: 18,
@@ -480,55 +565,43 @@ const styles = StyleSheet.create({
     color: '#333',
   },
   statusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 16,
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: '#10B981',
   },
   statusText: {
-    fontSize: 12,
-    fontWeight: 'bold',
+    fontSize: 14,
+    color: 'white',
   },
   userDetails: {
-    gap: 6,
+    padding: 16,
   },
   userDetail: {
-    fontSize: 14,
-    color: '#555',
-    lineHeight: 20,
+    fontSize: 16,
+    color: '#6B7280',
+    marginBottom: 8,
   },
   bold: {
     fontWeight: 'bold',
   },
-  exportButton: {
-    backgroundColor: '#059669',
-    padding: 16,
-    borderRadius: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-  },
-  exportButtonText: {
-    fontSize: 16,
-    color: 'white',
-    marginLeft: 8,
-  },
   paymentCard: {
-    backgroundColor: 'white',
     padding: 16,
-    borderRadius: 12,
+    borderRadius: 8,
+    backgroundColor: '#F9FAFB',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
     marginBottom: 16,
   },
   paymentHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 12,
+    alignItems: 'center',
   },
   paymentUser: {
     fontSize: 18,
@@ -541,21 +614,33 @@ const styles = StyleSheet.create({
     color: '#059669',
   },
   paymentDetails: {
-    gap: 6,
+    padding: 16,
   },
   paymentDetail: {
-    fontSize: 14,
-    color: '#555',
-    lineHeight: 20,
+    fontSize: 16,
+    color: '#6B7280',
+    marginBottom: 8,
+  },
+  exportButton: {
+    padding: 16,
+    borderRadius: 8,
+    backgroundColor: '#059669',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  exportButtonText: {
+    fontSize: 16,
+    color: 'white',
+    marginLeft: 8,
   },
   importButton: {
-    backgroundColor: '#059669',
     padding: 16,
-    borderRadius: 12,
+    borderRadius: 8,
+    backgroundColor: '#059669',
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
+    alignItems: 'center',
   },
   importButtonText: {
     fontSize: 16,
@@ -568,22 +653,25 @@ const styles = StyleSheet.create({
   templatesGrid: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    marginBottom: 16,
+    alignItems: 'center',
+    padding: 16,
   },
   templateButton: {
-    backgroundColor: 'white',
     padding: 16,
-    borderRadius: 12,
+    borderRadius: 8,
+    backgroundColor: '#F9FAFB',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   templateText: {
-    fontSize: 14,
-    color: '#555',
-    textAlign: 'center',
+    fontSize: 16,
+    color: '#6B7280',
   },
   instructionsContainer: {
     padding: 16,
@@ -595,11 +683,23 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   instructionText: {
-    fontSize: 14,
-    color: '#555',
-    lineHeight: 20,
+    fontSize: 16,
+    color: '#6B7280',
+    marginBottom: 8,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 16,
+    textAlign: 'center',
   },
   bottomSpace: {
-    height: 20,
+    height: 100,
+  },
+  instructionText: {
+    fontSize: 16,
+    color: '#6B7280',
+    marginBottom: 8,
   },
 });
